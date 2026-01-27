@@ -695,7 +695,7 @@ fun SettingsDialog(
         text = {
             Column {
                 Text("開發者: Repkironca")
-                Text("版本: v0.4.1 (Beta)") // 更新版本號
+                Text("版本: v0.4.0-Beta-") // 版本號
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text("設定停損點 (次數):", fontWeight = FontWeight.Bold)
