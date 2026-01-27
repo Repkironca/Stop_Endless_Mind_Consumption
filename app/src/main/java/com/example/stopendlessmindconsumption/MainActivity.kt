@@ -43,7 +43,7 @@ import java.util.*
 
 // --- 資料結構定義區 ---
 // [MindRecord]
-// 增加了 severity (1=黃, 2=橘, 3=紅) 和 note (日記)
+// 增加了 severity (1=藍, 2=紫, 3=紅) 和 note (日記)
 data class MindRecord(
     val timestamp: Long,
     val severity: Int,
@@ -62,6 +62,11 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// 顏色定義
+val colorBlue = Color(0xFF00008b)
+val colorPurple = Color(0xFF5B0E53)
+val colorBloodRed = Color(0xFFB71C1C)
+
 // --- 頂層導航控制 (新) ---
 // 負責在主畫面與歷史畫面之間切換，並持有共用的 records 狀態
 @Composable
@@ -75,6 +80,9 @@ fun AppNavigation() {
     var records by remember { mutableStateOf(RecordManager.loadRecords(sharedPref)) }
     var maxLimit by remember { mutableIntStateOf(sharedPref.getInt("MAX_LIMIT", 50)) }
 
+    // 新增：冷卻時間 (單位：分鐘)，預設 60 分鐘
+    var coolingTime by remember { mutableIntStateOf(sharedPref.getInt("COOLING_TIME", 60)) }
+
     // 頁面狀態: "home" or "history"
     var currentScreen by remember { mutableStateOf("home") }
 
@@ -82,19 +90,25 @@ fun AppNavigation() {
         StopLossScreen(
             records = records,
             maxLimit = maxLimit,
+            coolingTime = coolingTime,
             onRecordsChange = { newRecords ->
                 records = newRecords
                 RecordManager.saveRecords(sharedPref, newRecords)
             },
-            onMaxLimitChange = { newLimit ->
+            onSettingsChange = { newLimit, newCooling ->
                 maxLimit = newLimit
-                sharedPref.edit().putInt("MAX_LIMIT", newLimit).apply()
+                coolingTime = newCooling
+                sharedPref.edit()
+                    .putInt("MAX_LIMIT", newLimit)
+                    .putInt("COOLING_TIME", newCooling)
+                    .apply()
             },
             onNavigateToHistory = { currentScreen = "history" }
         )
     } else {
         HistoryScreen(
             records = records,
+            coolingTime = coolingTime,
             onBack = { currentScreen = "home" }
         )
     }
@@ -107,8 +121,9 @@ fun AppNavigation() {
 fun StopLossScreen(
     records: List<MindRecord>,
     maxLimit: Int,
+    coolingTime: Int, // 新增：傳入冷卻時間
     onRecordsChange: (List<MindRecord>) -> Unit,
-    onMaxLimitChange: (Int) -> Unit,
+    onSettingsChange: (Int, Int) -> Unit, // 修改：同時更新上限與冷卻時間
     onNavigateToHistory: () -> Unit
 ) {
     val context = LocalContext.current
@@ -124,6 +139,15 @@ fun StopLossScreen(
     val currentCount = records.size
     // 計算進度百分比 (0.0 ~ 1.0)
     val progress = (currentCount.toFloat() / maxLimit).coerceIn(0f, 1f)
+
+    // 格式化上次紀錄時間
+    val lastRecord = records.lastOrNull()
+    val lastRecordText = if (lastRecord != null) {
+        val sdf = SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.getDefault())
+        "上次紀錄：${sdf.format(Date(lastRecord.timestamp))}"
+    } else {
+        "尚未開始紀錄"
+    }
 
     // [Scaffold]: 建築鷹架
     Scaffold(
@@ -154,12 +178,22 @@ fun StopLossScreen(
             // 頂部資訊
             Text(text = "停損點: $maxLimit", fontSize = 16.sp, color = MaterialTheme.colorScheme.secondary)
 
+            // 新增：目前次數顯示 (介於停損點與百分比之間)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "目前次數: $currentCount",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+
             // 顯示百分比字樣 (修改：保留兩位小數)
             Text(
                 text = "%.2f%%".format(progress * 100),
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Bold,
-                color = if(progress > 0.8f) Color.Red else MaterialTheme.colorScheme.primary
+                color = if(progress > 0.8f) Color(0xFFB71C1C) else MaterialTheme.colorScheme.primary
             )
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -177,9 +211,18 @@ fun StopLossScreen(
                 )
             }
 
+            // 新增：在派大星下面顯示上次紀錄時間
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = lastRecordText,
+                fontSize = 14.sp,
+                color = Color.Gray,
+                fontWeight = FontWeight.Medium
+            )
+
             Spacer(modifier = Modifier.weight(1f)) // 彈簧
 
-            // --- 控制區：三顆按鈕 ---
+            // --- 控制區：三顆按鈕 (顏色修改：冷寂藍->瘀青紫->血紅) ---
             Text("選擇嚴重程度", fontSize = 18.sp, fontWeight = FontWeight.Medium)
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -187,23 +230,23 @@ fun StopLossScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                // 黃色按鈕
-                SeverityButton(color = Color(0xFFFFEB3B), text = "", textColor = Color.Black) {
-                    if (checkCooldown(records, context)) {
+                // 藍色按鈕 (Level 1: 冷寂灰藍)
+                SeverityButton(color = colorBlue, text = "", textColor = Color.White) {
+                    if (checkCooldown(records, context, coolingTime)) {
                         tempSeverity = 1
                         showDiaryInput = true
                     }
                 }
-                // 橘色按鈕
-                SeverityButton(color = Color(0xFFFF9800), text = "", textColor = Color.White) {
-                    if (checkCooldown(records, context)) {
+                // 紫色按鈕 (Level 2: 瘀青紫)
+                SeverityButton(color = colorPurple, text = "", textColor = Color.White) {
+                    if (checkCooldown(records, context, coolingTime)) {
                         tempSeverity = 2
                         showDiaryInput = true
                     }
                 }
-                // 紅色按鈕
-                SeverityButton(color = Color(0xFFF44336), text = "", textColor = Color.White) {
-                    if (checkCooldown(records, context)) {
+                // 紅色按鈕 (Level 3: 凝固血紅)
+                SeverityButton(color = colorBloodRed, text = "", textColor = Color.White) {
+                    if (checkCooldown(records, context, coolingTime)) {
                         tempSeverity = 3
                         showDiaryInput = true
                     }
@@ -219,11 +262,12 @@ fun StopLossScreen(
     if (showSettings) {
         SettingsDialog(
             currentLimit = maxLimit,
+            currentCooling = coolingTime,
             onDismiss = { showSettings = false },
-            onConfirm = { newLimit ->
-                onMaxLimitChange(newLimit)
+            onConfirm = { newLimit, newCooling ->
+                onSettingsChange(newLimit, newCooling)
                 showSettings = false
-                Toast.makeText(context, "停損點已更新", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "設定已更新", Toast.LENGTH_SHORT).show()
             },
             onResetData = {
                 onRecordsChange(emptyList())
@@ -262,6 +306,7 @@ fun StopLossScreen(
 @Composable
 fun HistoryScreen(
     records: List<MindRecord>,
+    coolingTime: Int,
     onBack: () -> Unit
 ) {
     // 顯示模式: true = Grid (格子), false = List (列表)
@@ -297,7 +342,7 @@ fun HistoryScreen(
                 CalendarGridView(records) { dayStart -> selectedDayStart = dayStart }
             } else {
                 // 列表(時間軸)模式
-                TimelineListView(records) { dayStart -> selectedDayStart = dayStart }
+                TimelineListView(records, coolingTime) { dayStart -> selectedDayStart = dayStart }
             }
         }
     }
@@ -307,6 +352,7 @@ fun HistoryScreen(
         DetailPopup(
             dayStart = selectedDayStart!!,
             allRecords = records,
+            coolingTime = coolingTime,
             onDismiss = { selectedDayStart = null }
         )
     }
@@ -385,16 +431,13 @@ fun MonthSection(monthCal: Calendar, allRecords: List<MindRecord>, onDateClick: 
                         val dEnd = dStart + 86400000L
                         val dailyRecs = recordsInMonth.filter { it.timestamp in dStart until dEnd }
 
-                        // 顏色邏輯：無紀錄=綠色，有紀錄=平均顏色
+                        // 顏色邏輯：無紀錄=綠色，有紀錄=計算加權平均顏色
                         val cellColor = if (dailyRecs.isEmpty()) {
-                            Color(0xFF4CAF50) // 綠色
+                            Color(0xFF4CAF50) // 綠色 (Safe)
                         } else {
                             val avg = dailyRecs.map { it.severity }.average()
-                            when {
-                                avg <= 1.5 -> Color(0xFFFFEB3B) // 黃
-                                avg <= 2.5 -> Color(0xFFFF9800) // 橘
-                                else -> Color(0xFFF44336)       // 紅
-                            }
+                            // 使用漸層混色 (深藍->深紫->血紅)
+                            calculateWeightedColor(avg)
                         }
 
                         Box(
@@ -408,9 +451,9 @@ fun MonthSection(monthCal: Calendar, allRecords: List<MindRecord>, onDateClick: 
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("$day", fontSize = 12.sp, color = if(dailyRecs.isEmpty()) Color.White else Color.Black)
+                                Text("$day", fontSize = 12.sp, color = if(dailyRecs.isEmpty()) Color.Black else Color.White)
                                 if (dailyRecs.isNotEmpty()) {
-                                    Text("${dailyRecs.size}", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    Text("${dailyRecs.size}", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
                                 }
                             }
                         }
@@ -425,7 +468,7 @@ fun MonthSection(monthCal: Calendar, allRecords: List<MindRecord>, onDateClick: 
 
 // --- 2.2 列表模式 (時間軸) 實作 ---
 @Composable
-fun TimelineListView(records: List<MindRecord>, onDateClick: (Long) -> Unit) {
+fun TimelineListView(records: List<MindRecord>, coolingTime: Int, onDateClick: (Long) -> Unit) {
     // 顯示過去 60 天
     val days = remember {
         val list = mutableListOf<Calendar>()
@@ -444,20 +487,24 @@ fun TimelineListView(records: List<MindRecord>, onDateClick: (Long) -> Unit) {
 
     LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         items(days) { dayCal ->
-            TimelineItem(dayCal, records, onDateClick)
+            TimelineItem(dayCal, records, coolingTime, onDateClick)
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
 
 @Composable
-fun TimelineItem(dayCal: Calendar, allRecords: List<MindRecord>, onDateClick: (Long) -> Unit) {
+fun TimelineItem(dayCal: Calendar, allRecords: List<MindRecord>, coolingTime: Int, onDateClick: (Long) -> Unit) {
     val dayStart = dayCal.timeInMillis
     val dayEnd = dayStart + 86400000L
     val dateStr = SimpleDateFormat("MM/dd (E)", Locale.getDefault()).format(dayCal.time)
 
-    // 找出可能影響這天的紀錄 (包含前一天 23:00 後的紀錄，因為會持續 60 分鐘)
-    val searchStart = dayStart - 3600000
+    // 計算冷卻時間的毫秒數
+    val coolingMillis = coolingTime * 60000L
+
+    // 找出可能影響這天的紀錄 (包含前一天跨日的)
+    // 搜尋範圍要擴大到：dayStart - coolingTime
+    val searchStart = dayStart - coolingMillis
     val relevantRecords = allRecords.filter { it.timestamp in searchStart until dayEnd }
 
     Column(modifier = Modifier.fillMaxWidth().clickable { onDateClick(dayStart) }) {
@@ -477,12 +524,12 @@ fun TimelineItem(dayCal: Calendar, allRecords: List<MindRecord>, onDateClick: (L
             // 1. 底色全綠
             drawRect(color = Color(0xFF4CAF50), size = size)
 
-            // 2. 畫上紀錄 (精確到分鐘)
+            // 2. 畫上紀錄 (使用設定的 coolingTime)
             relevantRecords.forEach { rec ->
                 // 計算紀錄相對於今天 00:00 的開始與結束分鐘數
                 // 注意：如果 rec.timestamp < dayStart (昨天的紀錄)，startMin 會是負的
                 val startMin = (rec.timestamp - dayStart) / 60000f
-                val endMin = startMin + 60f // 持續 60 分鐘
+                val endMin = startMin + coolingTime.toFloat() // 持續 coolingTime 分鐘
 
                 // 計算繪製範圍 (截斷超出當天的部分)
                 val drawStartMin = startMin.coerceAtLeast(0f)
@@ -491,11 +538,10 @@ fun TimelineItem(dayCal: Calendar, allRecords: List<MindRecord>, onDateClick: (L
                 if (drawEndMin > drawStartMin) {
                     val startX = (drawStartMin / totalMinutes) * w
                     val endX = (drawEndMin / totalMinutes) * w
-
                     val color = when(rec.severity) {
-                        1 -> Color(0xFFFFEB3B)
-                        2 -> Color(0xFFFF9800)
-                        else -> Color(0xFFF44336)
+                        1 -> colorBlue
+                        2 -> colorPurple
+                        else -> colorBloodRed
                     }
 
                     drawRect(
@@ -511,16 +557,17 @@ fun TimelineItem(dayCal: Calendar, allRecords: List<MindRecord>, onDateClick: (L
 
 // --- 3. 詳細資訊懸浮視窗 ---
 @Composable
-fun DetailPopup(dayStart: Long, allRecords: List<MindRecord>, onDismiss: () -> Unit) {
+fun DetailPopup(dayStart: Long, allRecords: List<MindRecord>, coolingTime: Int, onDismiss: () -> Unit) {
     val dayEnd = dayStart + 86400000L
     val dateFormat = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault())
     val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+    val coolingMillis = coolingTime * 60000L
 
     // 篩選出顯示在詳細清單的紀錄
-    // 包含：今天發生的，以及昨天發生但跨到今天的 (符合時間軸邏輯)
+    // 包含：今天發生的，以及昨天發生但跨到今天的
     val recordsToShow = allRecords.filter { rec ->
-        val recEnd = rec.timestamp + 3600000 // +60m
-        // 條件：紀錄本身的區間 [t, t+60] 與今天的區間 [0, 24h] 有重疊
+        val recEnd = rec.timestamp + coolingMillis
+        // 條件：紀錄本身的區間 [t, t+cooling] 與今天的區間 [0, 24h] 有重疊
         rec.timestamp < dayEnd && recEnd > dayStart
     }.sortedBy { it.timestamp }
 
@@ -548,9 +595,9 @@ fun DetailPopup(dayStart: Long, allRecords: List<MindRecord>, onDismiss: () -> U
 
                             Row(verticalAlignment = Alignment.Top) {
                                 val color = when(record.severity) {
-                                    1 -> Color(0xFFFFEB3B)
-                                    2 -> Color(0xFFFF9800)
-                                    else -> Color(0xFFF44336)
+                                    1 -> Color(0xFF37474F) // 冷寂灰藍
+                                    2 -> Color(0xFF4A148C) // 瘀青紫
+                                    else -> Color(0xFFB71C1C) // 凝固血紅
                                 }
                                 Box(modifier = Modifier.padding(top = 4.dp).size(12.dp).clip(RoundedCornerShape(50)).background(color))
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -629,15 +676,17 @@ fun DiaryInputDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
     )
 }
 
-// 設定視窗
+// 設定視窗 (新增：冷卻時間設定)
 @Composable
 fun SettingsDialog(
     currentLimit: Int,
+    currentCooling: Int,
     onDismiss: () -> Unit,
-    onConfirm: (Int) -> Unit,
+    onConfirm: (Int, Int) -> Unit, // 修改回傳參數
     onResetData: () -> Unit
 ) {
     var tempLimitString by remember { mutableStateOf(currentLimit.toString()) }
+    var tempCoolingString by remember { mutableStateOf(currentCooling.toString()) }
     var showResetConfirm by remember { mutableStateOf(false) }
 
     AlertDialog(
@@ -646,16 +695,26 @@ fun SettingsDialog(
         text = {
             Column {
                 Text("開發者: 資工系暈船仔")
-                Text("版本: v0.3.0 (Beta)") // 更新版本號
+                Text("版本: v0.4.0 (Beta)") // 更新版本號
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Text("設定停損點:", fontWeight = FontWeight.Bold)
+                Text("設定停損點 (次數):", fontWeight = FontWeight.Bold)
                 OutlinedTextField(
                     value = tempLimitString,
                     onValueChange = { if (it.all { char -> char.isDigit() }) tempLimitString = it },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text("設定冷卻時間 (分鐘):", fontWeight = FontWeight.Bold)
+                OutlinedTextField(
+                    value = tempCoolingString,
+                    onValueChange = { if (it.all { char -> char.isDigit() }) tempCoolingString = it },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
                 Spacer(modifier = Modifier.height(16.dp))
                 TextButton(onClick = { showResetConfirm = true }) {
                     Text("清除所有紀錄 (歸零)", color = MaterialTheme.colorScheme.error)
@@ -663,7 +722,12 @@ fun SettingsDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { onConfirm(tempLimitString.toIntOrNull() ?: currentLimit) }) {
+            Button(onClick = {
+                onConfirm(
+                    tempLimitString.toIntOrNull() ?: currentLimit,
+                    tempCoolingString.toIntOrNull() ?: currentCooling
+                )
+            }) {
                 Text("確定")
             }
         },
@@ -687,12 +751,46 @@ fun SettingsDialog(
 
 // --- 靜態工具區 ---
 
-fun checkCooldown(records: List<MindRecord>, context: Context): Boolean {
+// 計算加權顏色 (改用冷暖色調混色)
+// 1.0 = 冷寂灰藍 (Blue Grey), 2.0 = 瘀青紫 (Deep Purple), 3.0 = 凝固血紅 (Blood Red)
+fun calculateWeightedColor(avg: Double): Color {
+    // 定義顏色常數
+    return when {
+        avg <= 1.0 -> colorBlue
+        avg >= 3.0 -> colorBloodRed
+        avg <= 2.0 -> {
+            // 在 灰藍 (1.0) 與 深紫 (2.0) 之間插值
+            val fraction = (avg - 1.0).toFloat() // 0.0 ~ 1.0
+            lerpColor(colorBlue, colorPurple, fraction)
+        }
+        else -> {
+            // 在 深紫 (2.0) 與 血紅 (3.0) 之間插值
+            val fraction = (avg - 2.0).toFloat() // 0.0 ~ 1.0
+            lerpColor(colorPurple, colorBloodRed, fraction)
+        }
+    }
+}
+
+// 顏色線性插值 (Linear Interpolation)
+fun lerpColor(start: Color, stop: Color, fraction: Float): Color {
+    val r = start.red + (stop.red - start.red) * fraction
+    val g = start.green + (stop.green - start.green) * fraction
+    val b = start.blue + (stop.blue - start.blue) * fraction
+    val a = start.alpha + (stop.alpha - start.alpha) * fraction
+    return Color(r, g, b, a)
+}
+
+fun checkCooldown(records: List<MindRecord>, context: Context, coolingTimeMinutes: Int): Boolean {
     val now = System.currentTimeMillis()
     val lastTime = records.lastOrNull()?.timestamp ?: 0L
-    // 正式版建議改成 3600000 (1小時)，目前保留 5000 (5秒) 供測試
-    if (now - lastTime < 5000) {
-        Toast.makeText(context, "太頻繁了！還在冷卻中。", Toast.LENGTH_SHORT).show()
+
+    // 計算毫秒數
+    val coolingMillis = coolingTimeMinutes * 60000L
+
+    if (now - lastTime < coolingMillis) {
+        val remainingMin = (coolingMillis - (now - lastTime)) / 60000
+        val remainingSec = ((coolingMillis - (now - lastTime)) % 60000) / 1000
+        Toast.makeText(context, "太頻繁了！還需 $remainingMin 分 $remainingSec 秒。", Toast.LENGTH_SHORT).show()
         return false
     }
     return true
