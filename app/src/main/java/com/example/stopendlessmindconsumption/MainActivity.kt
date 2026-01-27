@@ -153,7 +153,7 @@ fun StopLossScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("沒關係的小石頭，等你想跑再跑吧", fontWeight = FontWeight.Bold) },
+                title = { Text("誰不想當派大星啊 ==", fontWeight = FontWeight.Bold) },
                 actions = {
                     // 新增：歷史紀錄按鈕
                     IconButton(onClick = onNavigateToHistory) {
