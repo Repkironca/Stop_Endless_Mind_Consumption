@@ -4,7 +4,7 @@
 
 > 現在只有給 Android 的版本
 
-右邊有一欄 Releases，在那邊選擇最新的一個版本點進去，然後你會在 Assets 的地方找到 .apk，自己載下來安裝，堆
+右邊（手機的應該在最下面）有一欄 [Releases](https://github.com/Repkironca/Stop_Endless_Mind_Consumption/releases)，在那邊選擇最新的一個版本點進去，然後你會在 Assets 的地方找到 .apk，自己載下來安裝，堆
 
 ## 簡介與使用說明！
 
@@ -85,4 +85,7 @@
 
 伺服器部分拿 Render, Vercel 之類的湊合用，雖然是 Cold Start 有人連線才重新開機，不過有則勝無，大不了我寫個 app 定時 ping 它
 
+### 月曆模式的計數器太下面了
+
+如題
 
