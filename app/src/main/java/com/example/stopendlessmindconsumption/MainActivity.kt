@@ -153,7 +153,7 @@ fun StopLossScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("露西停損計畫", fontWeight = FontWeight.Bold) },
+                title = { Text("沒關係的小石頭，等你想跑再跑吧", fontWeight = FontWeight.Bold) },
                 actions = {
                     // 新增：歷史紀錄按鈕
                     IconButton(onClick = onNavigateToHistory) {
@@ -176,12 +176,12 @@ fun StopLossScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // 頂部資訊
-            Text(text = "停損點: $maxLimit", fontSize = 16.sp, color = MaterialTheme.colorScheme.secondary)
+            Text(text = "停損點: $maxLimit 次", fontSize = 16.sp, color = MaterialTheme.colorScheme.secondary)
 
             // 新增：目前次數顯示 (介於停損點與百分比之間)
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "目前次數: $currentCount",
+                text = "目前紀錄: $currentCount 次",
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -292,7 +292,7 @@ fun StopLossScreen(
                 showDiaryInput = false
 
                 if (records.size + 1 >= maxLimit) { // +1 因為 records 還沒更新
-                    Toast.makeText(context, "停損點到了！", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "停損點已到，可以認真評估目前狀態了", Toast.LENGTH_LONG).show()
                 } else {
                     Toast.makeText(context, "紀錄已儲存", Toast.LENGTH_SHORT).show()
                 }
@@ -318,7 +318,7 @@ fun HistoryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (isGridMode) "歷史紀錄 (格子)" else "歷史紀錄 (時間軸)") },
+                title = { Text(if (isGridMode) "歷史紀錄 (月曆)" else "歷史紀錄 (時間軸)") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -586,7 +586,7 @@ fun DetailPopup(dayStart: Long, allRecords: List<MindRecord>, coolingTime: Int, 
                 Spacer(modifier = Modifier.height(16.dp))
 
                 if (recordsToShow.isEmpty()) {
-                    Text("這天心如止水，沒有任何紀錄 (全綠)。", color = Color.Gray)
+                    Text("這天心如止水，沒有任何紀錄。", color = Color.Gray)
                 } else {
                     LazyColumn {
                         items(recordsToShow) { record ->
@@ -694,8 +694,8 @@ fun SettingsDialog(
         title = { Text("設定與開發者資訊") },
         text = {
             Column {
-                Text("開發者: 資工系暈船仔")
-                Text("版本: v0.4.0 (Beta)") // 更新版本號
+                Text("開發者: Repkironca")
+                Text("版本: v0.4.1 (Beta)") // 更新版本號
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text("設定停損點 (次數):", fontWeight = FontWeight.Bold)
@@ -790,7 +790,7 @@ fun checkCooldown(records: List<MindRecord>, context: Context, coolingTimeMinute
     if (now - lastTime < coolingMillis) {
         val remainingMin = (coolingMillis - (now - lastTime)) / 60000
         val remainingSec = ((coolingMillis - (now - lastTime)) % 60000) / 1000
-        Toast.makeText(context, "太頻繁了！還需 $remainingMin 分 $remainingSec 秒。", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "紀錄過於頻繁，尚在冷卻中！還需 $remainingMin 分 $remainingSec 秒。", Toast.LENGTH_SHORT).show()
         return false
     }
     return true
