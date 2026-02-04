@@ -17,6 +17,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -86,6 +88,23 @@ fun AppNavigation() {
     // 頁面狀態: "home" or "history"
     var currentScreen by remember { mutableStateOf("home") }
 
+    // --- 資料操作邏輯 (CRUD) ---
+    // 刪除紀錄
+    val onDeleteRecord: (MindRecord) -> Unit = { targetRecord ->
+        records = records.filter { it != targetRecord }
+        RecordManager.saveRecords(sharedPref, records)
+        Toast.makeText(context, "紀錄已刪除", Toast.LENGTH_SHORT).show()
+    }
+
+    // 更新紀錄 (編輯日記)
+    val onUpdateRecord: (MindRecord, String) -> Unit = { targetRecord, newNote ->
+        records = records.map {
+            if (it == targetRecord) it.copy(note = newNote) else it
+        }
+        RecordManager.saveRecords(sharedPref, records)
+        Toast.makeText(context, "日記已更新", Toast.LENGTH_SHORT).show()
+    }
+
     if (currentScreen == "home") {
         StopLossScreen(
             records = records,
@@ -109,7 +128,9 @@ fun AppNavigation() {
         HistoryScreen(
             records = records,
             coolingTime = coolingTime,
-            onBack = { currentScreen = "home" }
+            onBack = { currentScreen = "home" },
+            onDeleteRecord = onDeleteRecord, // 傳入刪除函式
+            onUpdateRecord = onUpdateRecord  // 傳入更新函式
         )
     }
 }
@@ -307,7 +328,9 @@ fun StopLossScreen(
 fun HistoryScreen(
     records: List<MindRecord>,
     coolingTime: Int,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onDeleteRecord: (MindRecord) -> Unit, // 新增
+    onUpdateRecord: (MindRecord, String) -> Unit // 新增
 ) {
     // 顯示模式: true = Grid (格子), false = List (列表)
     var isGridMode by remember { mutableStateOf(true) }
@@ -353,7 +376,9 @@ fun HistoryScreen(
             dayStart = selectedDayStart!!,
             allRecords = records,
             coolingTime = coolingTime,
-            onDismiss = { selectedDayStart = null }
+            onDismiss = { selectedDayStart = null },
+            onDeleteRecord = onDeleteRecord,
+            onUpdateRecord = onUpdateRecord
         )
     }
 }
@@ -557,7 +582,14 @@ fun TimelineItem(dayCal: Calendar, allRecords: List<MindRecord>, coolingTime: In
 
 // --- 3. 詳細資訊懸浮視窗 ---
 @Composable
-fun DetailPopup(dayStart: Long, allRecords: List<MindRecord>, coolingTime: Int, onDismiss: () -> Unit) {
+fun DetailPopup(
+    dayStart: Long,
+    allRecords: List<MindRecord>,
+    coolingTime: Int,
+    onDismiss: () -> Unit,
+    onDeleteRecord: (MindRecord) -> Unit, // 新增
+    onUpdateRecord: (MindRecord, String) -> Unit // 新增
+) {
     val dayEnd = dayStart + 86400000L
     val dateFormat = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault())
     val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -590,30 +622,7 @@ fun DetailPopup(dayStart: Long, allRecords: List<MindRecord>, coolingTime: Int, 
                 } else {
                     LazyColumn {
                         items(recordsToShow) { record ->
-                            // 判斷是否為跨日
-                            val isCrossDay = record.timestamp < dayStart
-
-                            Row(verticalAlignment = Alignment.Top) {
-                                val color = when(record.severity) {
-                                    1 -> Color(0xFF37474F) // 冷寂灰藍
-                                    2 -> Color(0xFF4A148C) // 瘀青紫
-                                    else -> Color(0xFFB71C1C) // 凝固血紅
-                                }
-                                Box(modifier = Modifier.padding(top = 4.dp).size(12.dp).clip(RoundedCornerShape(50)).background(color))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(timeFormat.format(Date(record.timestamp)), fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                        if (isCrossDay) {
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text("(跨日延續)", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
-                                        }
-                                    }
-                                    if (record.note.isNotEmpty()) {
-                                        Text(record.note, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                }
-                            }
+                            DetailItem(record, timeFormat, dayStart, onDeleteRecord, onUpdateRecord)
                             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                         }
                     }
@@ -625,6 +634,162 @@ fun DetailPopup(dayStart: Long, allRecords: List<MindRecord>, coolingTime: Int, 
             }
         }
     }
+}
+
+// 單筆紀錄的顯示元件，包含刪除與編輯
+@Composable
+fun DetailItem(
+    record: MindRecord,
+    timeFormat: SimpleDateFormat,
+    currentDayStart: Long,
+    onDeleteRecord: (MindRecord) -> Unit,
+    onUpdateRecord: (MindRecord, String) -> Unit
+) {
+    // 判斷是否為跨日
+    val isCrossDay = record.timestamp < currentDayStart
+    var showEditDialog by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    Row(
+        verticalAlignment = Alignment.Top,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        // 1. 顏色指示點
+        val color = when(record.severity) {
+            1 -> Color(0xFF37474F) // 冷寂灰藍
+            2 -> Color(0xFF4A148C) // 瘀青紫
+            else -> Color(0xFFB71C1C) // 凝固血紅
+        }
+        Box(
+            modifier = Modifier
+                .padding(top = 4.dp)
+                .size(12.dp)
+                .clip(RoundedCornerShape(50))
+                .background(color)
+        )
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        // 2. 內容文字區 (權重設為 1，佔據中間空間)
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = timeFormat.format(Date(record.timestamp)),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+                if (isCrossDay) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("(跨日延續)", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                }
+            }
+            if (record.note.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = record.note,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        // 3. 操作按鈕區 (編輯 & 刪除)
+        Row {
+            // 編輯按鈕 (鋼筆)
+            IconButton(
+                onClick = { showEditDialog = true },
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "Edit",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            // 刪除按鈕 (垃圾桶)
+            IconButton(
+                onClick = { showDeleteConfirm = true },
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+
+    // 編輯對話框
+    if (showEditDialog) {
+        EditNoteDialog(
+            currentNote = record.note,
+            onDismiss = { showEditDialog = false },
+            onConfirm = { newNote ->
+                onUpdateRecord(record, newNote)
+                showEditDialog = false
+            }
+        )
+    }
+
+    // 刪除確認對話框
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("刪除紀錄") },
+            text = { Text("確定要刪除這筆紀錄嗎？此動作無法復原。") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteRecord(record)
+                        showDeleteConfirm = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("刪除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+}
+
+// 編輯日記專用的 Dialog
+@Composable
+fun EditNoteDialog(currentNote: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var text by remember { mutableStateOf(currentNote) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("編輯日記") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                label = { Text("內容") },
+                modifier = Modifier.fillMaxWidth().height(150.dp),
+                maxLines = 5,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
+            )
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(text) }) {
+                Text("更新")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
 }
 
 // --- Composable 元件區 (保留原樣) ---
@@ -695,7 +860,7 @@ fun SettingsDialog(
         text = {
             Column {
                 Text("開發者: Repkironca")
-                Text("版本: v0.4.0-Beta-") // 版本號
+                Text("版本: v0.5.0-Beta") // 更新版本號
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text("設定停損點 (次數):", fontWeight = FontWeight.Bold)
